@@ -5,22 +5,11 @@ from matplotlib import style
 import pandas_datareader.data as web
 import numpy as np
 
-'''
-Useful tags:
-^OMX
-'''
-
-style.use('ggplot')
-
-start = dt.datetime(2000, 1, 1)
-end = dt.datetime(2020, 1, 1)
-df = web.DataReader('^OMX', 'yahoo', start, end).drop('Volume', axis=1)
-
 
 def test_ma(df,
+            end_pos,
             starting_balance=-1,
             start_pos=200,
-            end_pos=len(df),
             moving_average_over=200,
             print_trades=False):
     first_buy_at = 0
@@ -72,9 +61,9 @@ def test_ma(df,
 
 
 def test_50ma200(df,
+                 end_pos,
                  starting_balance=-1,
                  start_pos=200,
-                 end_pos=len(df),
                  main_average_over=200,
                  crossing_average_over=50,
                  print_trades=False):
@@ -129,13 +118,13 @@ def test_50ma200(df,
 
 
 def test_any_two_crossing(df,
+                          end_pos,
                           ma_main,
                           ma_cross,
                           starting_balance=-1,
                           saving_per_period=0,
                           period_length=0,
                           start_pos=200,
-                          end_pos=len(df),
                           print_trades=False):
     short_at = 0
     first_buy_at = 0
@@ -196,11 +185,11 @@ def test_any_two_crossing(df,
 
 
 def test_buy_hold(df,
+                  end_pos,
                   starting_balance=0,
                   saving_per_period=0,
                   period_length=0,
-                  start_pos=200,
-                  end_pos=len(df)):
+                  start_pos=200):
     hist = pd.DataFrame(0, dtype=float, index=df.index, columns=['Trading History'])
     first_buy_at = df['Adj Close'].iloc[start_pos]
     shares = starting_balance / first_buy_at
@@ -217,13 +206,17 @@ def test_buy_hold(df,
 
 def calc_buy_hold_annual_growth(df, start_pos=200, dec=3):
     years = (int(str(df.last_valid_index()).split('-')[0]) - int(str(df.index[start_pos]).split('-')[0]))
+    while df['Adj Close'].iloc[start_pos] == 0:
+        start_pos += 1
     start_sum = df['Adj Close'].iloc[start_pos]
     end_sum = df['Adj Close'][-1]
     return round(100 * (end_sum / start_sum) ** (1 / years) - 100, dec)
 
 
-def calc_model_annual_growth(df, tag='Trading History', dec=3):
+def calc_model_annual_growth(df, tag='Trading History', start_pos=200, dec=3):
     years = (int(str(df.last_valid_index()).split('-')[0]) - int(str(df.index[start_pos]).split('-')[0]))
+    while df['Adj Close'].iloc[start_pos] == 0:
+        start_pos += 1
     start_sum = df[tag].iloc[df[tag].nonzero()[0][0]]
     end_sum = df[tag][-1]
     return round(100 * (end_sum / start_sum) ** (1 / years) - 100, dec)
@@ -302,9 +295,22 @@ def test_multiple_two_ema_crossing(df,
                 print('EMA' + str(crossing) + '/' + str(main) + ' model performance:',
                       calc_model_annual_growth(df, 'Trading History EMA' + str(crossing) + '/' + str(main)))
 
+'''
+Useful tags:
+^OMX
+'''
+
+style.use('ggplot')
+
+start = dt.datetime(2000, 1, 1)
+end = dt.datetime(2020, 1, 1)
+df = web.DataReader('^OMX', 'yahoo', start, end).drop('Volume', axis=1)
+df = df.ffill()
 
 start_pos = 200
 end_pos = len(df['Adj Close'])
+df['Adj Close'] = 100*df['Adj Close']/(df['Adj Close'][start_pos])
+
 print('Buy hold:\t', calc_buy_hold_annual_growth(df, start_pos), '% per year')
 plotting_list = ['Adj Close', 'SMA200', 'SMA50', 'EMA50']
 non_trading_plots = len(plotting_list)
@@ -313,27 +319,57 @@ df['SMA200'] = df['Adj Close'].rolling(window=200, min_periods=0).mean()
 df['SMA50'] = df['Adj Close'].rolling(window=50, min_periods=0).mean()
 df['EMA50'] = df['Adj Close'].ewm(span=50, min_periods=0).mean()
 
-first_buy_at, df['Trading History SMA200'] = test_ma(df, start_pos=start_pos, end_pos=end_pos, print_trades=False)
+first_buy_at, df['Trading History SMA200'] = test_ma(df,
+                                                     start_pos=start_pos,
+                                                     end_pos=end_pos,
+                                                     print_trades=False)
+starting_balance = 100
+savings_per_period = 0
+period_length = 21
+
 print('SMA200:\t\t', calc_model_annual_growth(df, 'Trading History SMA200'), '% per year')
 
-plotting_list.extend(['Trading History EMA50/200', 'Trading History SMA50/200', 'Accumulate Buy Hold'])
+plotting_list.extend(['Trading History EMA50/200', 'Trading History SMA50/200', 'Trading History SMA50/200 long'])
 
 _, df['Trading History EMA50/200'] = test_any_two_crossing(df,
+                                                           len(df),
                                                            df['Adj Close'].rolling(window=200,
                                                                                    min_periods=0).mean(),
-                                                           df['Adj Close'].ewm(span=60, min_periods=0).mean(), starting_balance=10000, saving_per_period=10000, period_length=21)
+                                                           df['Adj Close'].ewm(span=60, min_periods=0).mean(),
+                                                           starting_balance=starting_balance,
+                                                           saving_per_period=savings_per_period,
+                                                           period_length=period_length)
 
 _, df['Trading History SMA50/200'] = test_any_two_crossing(df,
+                                                           len(df),
                                                            df['Adj Close'].rolling(window=200,
                                                                                    min_periods=0).mean(),
-                                                           df['Adj Close'].rolling(window=70, min_periods=0).mean(), starting_balance=10000, saving_per_period=10000, period_length=21)
+                                                           df['Adj Close'].rolling(window=70,
+                                                                                   min_periods=0).mean(),
+                                                           starting_balance=starting_balance,
+                                                           saving_per_period=savings_per_period,
+                                                           period_length=period_length)
 
-_, df['Accumulate Buy Hold'] = test_buy_hold(df, starting_balance=10000, saving_per_period=10000, period_length=21)
+_, df['Trading History SMA50/200 long'] = test_50ma200(df,
+                                                       len(df),
+                                                       starting_balance=starting_balance)
+
+_, df['Accumulate Buy Hold'] = test_buy_hold(df,
+                                             end_pos=len(df),
+                                             starting_balance=starting_balance,
+                                             saving_per_period=savings_per_period,
+                                             period_length=period_length)
 
 # test_multiple_two_ema_crossing(df, plotting_list, first_buy_at, 30, 51, 10, 200, 201, 10)
 # test_multiple_two_sma_crossing(df, plotting_list, first_buy_at, 30, 71, 10, 200, 260, 10)
 
-print_top_list(df, plotting_list[non_trading_plots:])
+#print_top_list(df, plotting_list[non_trading_plots:])
 
-df[plotting_list].plot()
+df[plotting_list][start_pos:].plot()
+monthly_df = df[start_pos:].asfreq('M').ffill()
+monthly_df = (monthly_df/monthly_df.shift(1) - 1)*100
+monthly_df[['Adj Close', 'Trading History SMA50/200', 'Trading History SMA50/200 long']].plot()
+monthly_df['Alpha'] = monthly_df['Trading History EMA50/200'] - monthly_df['Adj Close']
+monthly_df[['Alpha']].plot()
+#print(str(df.groupby(['year', 'month'], )['Adj Close'].tail(12)))
 plt.show()
